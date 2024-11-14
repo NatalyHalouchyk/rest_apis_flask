@@ -1,3 +1,5 @@
+import sys
+from flask import current_app
 from flask.views import MethodView
 from flask_smorest import Blueprint, abort
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
@@ -7,25 +9,31 @@ from flask_jwt_extended import create_access_token, create_refresh_token, get_jw
 from db import db
 from blocklist import BLOCKLIST
 from models import UserModel
-from schemas import UserSchema
+from schemas import UserSchema, UserRegisterSchema
+from tasks import send_user_registration_email
 
 blp = Blueprint("users", __name__, description="Operations on users")
 
 @blp.route("/register")
 class UserRegister(MethodView):
-    @blp.arguments(UserSchema)
+    @blp.arguments(UserRegisterSchema)
     def post(self, user_data):
         
         new_user = UserModel(
             username=user_data["username"],
-            password=pbkdf2_sha256.hash(user_data["password"])
+            password=pbkdf2_sha256.hash(user_data["password"]),
+            email = user_data["email"]
         )
 
         try:
             db.session.add(new_user)
             db.session.commit()
+            print("Queue", flush=True)
+            print(current_app.queue, flush=True)
+            current_app.queue.enqueue(send_user_registration_email, new_user.email, new_user.username)
+            
         except IntegrityError:
-            abort(409, message="A user with this name already exists.")
+            abort(409, message="A user with this name or email already exists.")
         except SQLAlchemyError:
             abort(500, message="An error occured while creating the user.")
 
